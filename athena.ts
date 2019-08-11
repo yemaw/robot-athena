@@ -61,15 +61,22 @@ namespace athena {
 
     }
 
-    export interface DataLoggingInterface {
-        logData: () => void
+    export class DeviceController{
+        constructor(){
+            
+        }
     }
 
-    export class DeviceClass {
+    export class SingleDeviceController extends DeviceController{
         constructor() {
-
+            super()
         }
+    }
 
+    export class CompoundDeviceController extends DeviceController{
+        constructor() {
+            super()
+         }
     }
 }
 
