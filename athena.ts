@@ -50,33 +50,77 @@ namespace athena {
     }
 
     export interface BrainInterface {
-
+        handleSingleNetworkCommand: (controller_id: string, command: any, value: number) => void
     }
 
     export class BrainClass {
-        constructor() { }
-    }
+        constructor() {
 
-    export interface DeviceInterface {
-
-    }
-
-    export class DeviceController{
-        constructor(){
-            
         }
     }
 
-    export class SingleDeviceController extends DeviceController{
+    interface DeviceInterface {
+
+    }
+
+    export interface DataProvideDeviceInterface extends DeviceInterface {
+        getData: (key?: string) => any
+    }
+
+    export interface EventListeningDeviceInterface extends DeviceInterface {
+        listenEvents: () => void
+    }
+
+    export class DeviceController {
+        constructor() {
+
+        }
+    }
+
+    export class SingleDeviceController extends DeviceController {
         constructor() {
             super()
         }
     }
 
-    export class CompoundDeviceController extends DeviceController{
+    export class CompoundDeviceController extends DeviceController {
         constructor() {
             super()
-         }
+        }
+    }
+
+    export class NetworkCommander {
+
+        brain: BrainInterface
+
+        constructor(brain: BrainInterface) {
+            this.brain = brain
+            this.setup()
+        }
+
+        private send(key: string, value: number) {
+            radio.sendValue(key, value)
+        }
+
+        private setup() {
+            radio.setGroup(13)
+            radio.setTransmitPower(7)
+
+            let brain = this.brain
+            radio.onReceivedValue(function (name, value) {
+                let command = name.split('.')
+                let controller_id: string = command[0]
+                let command_enum: any = command[1]
+                brain.handleSingleNetworkCommand(controller_id, command_enum, value)
+            })
+        }
+
+        public transmitSingleNetworkCommand(controller_id: string, command_id: any, value: number) {
+            let command: string = controller_id + '.' + command_id
+            this.send(command, value)
+        }
+
+
     }
 }
 

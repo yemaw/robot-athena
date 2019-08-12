@@ -1,4 +1,4 @@
-class SonarDevice extends athena.SingleDeviceController implements athena.DataProvideDeviceInterface {
+class SonarSensor extends athena.SingleDeviceController implements athena.DataProvideDeviceInterface {
     getData(key?: string) {
         return sonar.ping(PIN_SONAR_TRIGGER, PIN_SONAR_ECHO, PingUnit.Centimeters)
     }
@@ -35,22 +35,22 @@ class LEDEarsDevice extends athena.SingleDeviceController {
 
 
 enum YawSegment {
-    front, back, left, right, front_left, front_right, back_left, back_right
+    none, front, back, left, right, front_left, front_right, back_left, back_right
 }
 
-class MotionDevices extends athena.CompoundDeviceController implements athena.EventListeningDeviceInterface, athena.DataProvideDeviceInterface {
+class MotionSensors extends athena.CompoundDeviceController implements athena.EventListeningDeviceInterface, athena.DataProvideDeviceInterface {
 
     constructor() {
         super()
     }
 
     listenEvents() {
-        pins.onPulsed(PIN_MOTION_FRONT_LEFT, PulseValue.High, function () {
+        // pins.onPulsed(PIN_MOTION_FRONT_LEFT, PulseValue.High, function () {
 
-        })
-        pins.onPulsed(PIN_MOTION_FRONT_RIGHT, PulseValue.Low, function () {
+        // })
+        // pins.onPulsed(PIN_MOTION_FRONT_RIGHT, PulseValue.Low, function () {
 
-        })
+        // })
     }
 
     getData(key?: string) {
@@ -60,18 +60,37 @@ class MotionDevices extends athena.CompoundDeviceController implements athena.Ev
         if (fl == 1 && fr == 1) {
             return YawSegment.front
         } else if (fl == 1 && fr == 0) {
-            return YawSegment.front_left;
+            return YawSegment.front_left
         } else if (fl == 0 && fr == 1) {
-            return YawSegment.front_right;
+            return YawSegment.front_right
         } else {
-            return null;
+            return YawSegment.none
         }
     }
 }
 
 
 
-class NeckYawServo extends athena.SingleDeviceController {
+class TemperatureSensor extends athena.SingleDeviceController implements athena.DataProvideDeviceInterface {
+    getData(key?: string) {
+        let v = pins.analogReadPin(PIN_TEMPERATURE)
+        return Math.round(v * (3 / 10.24))
+    }
+}
+
+
+
+class AmbientLightSensor extends athena.SingleDeviceController implements athena.DataProvideDeviceInterface {
+    getData(key?: string) {
+        let v = pins.analogReadPin(PIN_AMBIENT)
+        return v
+    }
+}
+
+//---
+
+class NeckYawDevice extends athena.SingleDeviceController {
+
     front() {
         motor.servo(motor.Servos.S8, 25)
     }
@@ -84,12 +103,30 @@ class NeckYawServo extends athena.SingleDeviceController {
 }
 
 
+enum WheelsControllerCommands {
+    front,
+    front_left,
+    front_right
+}
+class WheelsController extends athena.CompoundDeviceController implements athena.SubProgram {
 
-class WheelDevices extends athena.CompoundDeviceController {
-    basicForward() {
+    static controller_id: string = 'WheelsController'
+
+    loop() {
+        return 0
+    }
+
+    stop() { }
+
+    forward() {
         motor.MotorRun(motor.Motors.M1, motor.Dir.CW, 255)
         motor.MotorRun(motor.Motors.M4, motor.Dir.CW, 255)
     }
+    backward() {
+        motor.MotorRun(motor.Motors.M1, motor.Dir.CCW, 255)
+        motor.MotorRun(motor.Motors.M4, motor.Dir.CCW, 255)
+    }
+
     stopAll() {
         motor.motorStopAll()
     }
@@ -132,31 +169,6 @@ class MP3Decoder extends athena.SingleDeviceController {
 
 
 
-class TemperatureSensor extends athena.SingleDeviceController {
-    constructor() {
-        super()
-    }
-    execute() {
-        let v = pins.analogReadPin(AnalogPin.P1)
-        let temperature = Math.round(v * (3 / 10.24))
-
-        return temperature
-    }
-
-
-}
-
-
-
-class AmbientLightSensor extends athena.SingleDeviceController {
-    constructor() {
-        super()
-    }
-    execute() {
-        let v = pins.analogReadPin(AnalogPin.P0)
-        return v //todo::
-    }
-}
 
 
 
@@ -183,9 +195,14 @@ class ThingSpeak implements athena.SubProgram {
 
     constructor() {
         this.data = {
-            'temperature': null,
-            'ambient_light': null,
-            'humidity': null
+            0: null,
+            1: null,
+            2: null,
+            3: null,
+            4: null,
+            5: null,
+            6: null,
+            7: null
         }
         this.wifiConnect()
     }
@@ -196,23 +213,22 @@ class ThingSpeak implements athena.SubProgram {
         }
     }
 
-    update(key: string, value: number) {
-        this.data[key] = value
+    update(field_index: number, value: number) {
+        this.data[field_index] = value
     }
 
     sendData() {
-        //basic.showIcon(IconNames.Square)
         ESP8266ThingSpeak.connectThingSpeak(
             "api.thingspeak.com",
             THINGSPEAK_DEFAULT_CHANNEL,
-            this.data['temperature'],
-            this.data['ambient_light'],
-            this.data['humidity'],
-            null,
-            null,
-            null,
-            null,
-            null
+            this.data[0],
+            this.data[1],
+            this.data[2],
+            this.data[3],
+            this.data[4],
+            this.data[5],
+            this.data[6],
+            this.data[7]
         )
         if (!ESP8266ThingSpeak.isLastUploadSuccessful()) {
             //basic.showIcon(IconNames.No)
@@ -223,7 +239,7 @@ class ThingSpeak implements athena.SubProgram {
 
     loop() {
         this.sendData()
-        return 1000 * 15;
+        return 1000 * 30;
     }
 
     stop() { }
@@ -231,50 +247,77 @@ class ThingSpeak implements athena.SubProgram {
 
 
 
-class MasterBrain extends athena.BrainClass implements athena.BrainInterface, athena.SubProgram {
 
-    sonarDevice: SonarDevice
+
+class BrainA extends athena.BrainClass implements athena.BrainInterface, athena.SubProgram {
+
+    sonarSensor: SonarSensor
     ledEarDevice: LEDEarsDevice
-    motionDevices: MotionDevices
+    motionSensors: MotionSensors
+
+    networkCommander: athena.NetworkCommander
 
     constructor() {
         super()
-        this.sonarDevice = new SonarDevice()
+        this.sonarSensor = new SonarSensor()
         this.ledEarDevice = new LEDEarsDevice()
-        this.motionDevices = new MotionDevices()
+        this.motionSensors = new MotionSensors()
+
+        this.networkCommander = new athena.NetworkCommander(this)
     }
 
-    setupCommunication(){
-        radio.setGroup(ATHENA_RADIO_GROUP)
-        radio.setTransmitPower(7)
-        radio.onReceivedValue(function (name, value) {
-
-        })
-        //radio.sendValue("name", 0)
+    handleSingleNetworkCommand(controller_id: string, command: any, value: number) {
+        serial.writeLine(controller_id + ' - ' + command + ' - ' + value)
     }
 
-    
     loop() {
-        
-        // if (this.sonarDevice.getData() > 10) {
-        //     this.ledEarDevice.random()
-        // } else {
-        //     this.ledEarDevice.red()
+
+        let distance = this.sonarSensor.getData()
+
+        if (distance > 10) {
+            this.ledEarDevice.random()
+            this.networkCommander.transmitSingleNetworkCommand(
+                WheelsController.controller_id,
+                WheelsControllerCommands.front, 0)
+        } else {
+            this.ledEarDevice.red()
+        }
+
+        //let motion: YawSegment = this.motionSensors.getData()
+        //radio.sendValue("neck_yaw_servo", motion)
+        //this.ledEarDevice.random()
+        // switch (true) {
+        //     case motion == YawSegment.front:
+        //         this.ledEarDevice.green()
+        //         radio.sendValue("neckyawservo", 1)
+        //         break;
+
+        //     case motion == YawSegment.front_right:
+        //         this.ledEarDevice.red()
+        //         radio.sendValue("neckyawservo", 1)
+        //         break;
+
+        //     case motion == YawSegment.front_left:
+        //         this.ledEarDevice.blue()
+        //         radio.sendValue("neckyawservo", 1)
+        //         break;
+
+        //     default:
+        //         this.ledEarDevice.random()
+        //         serial.writeLine("neckyawservo", YawSegment.none)
+        //         break;
         // }
 
-        // let motion: YawSegment = this.motionDevices.getData()
-        // if (motion == YawSegment.front) {
-        //     this.ledEarDevice.red()
-        // } else if (motion == YawSegment.front_left) {
-        //     this.ledEarDevice.green()
-        // } else if (motion == YawSegment.front_right) {
-        //     this.ledEarDevice.blue()
-        // } else if (motion == null) {
-        //     this.ledEarDevice.random()
-        // } else {
-        //     basic.showIcon(IconNames.No)
-        // }
-        
+
+        // let command = "request.temperature.default.ax13xr4".split('.')
+        // let command1 = "response.temperature.default.ax13xr4".split('.')
+
+        // "broadcast.temperature.default.ie4ze1z".split('.')
+
+        // "command.motors.forward.ie4ze1z".split('.')
+
+        // basic.showString(command[0])
+
 
         return 100;
     }
@@ -284,30 +327,59 @@ class MasterBrain extends athena.BrainClass implements athena.BrainInterface, at
 
 
 
-class SlaveBrain extends athena.BrainClass implements athena.BrainInterface, athena.SubProgram {
+class BrainB extends athena.BrainClass implements athena.BrainInterface, athena.SubProgram {
 
-    wheelDevices: WheelDevices
+    wheelsController: WheelsController
+    temperatueSensor: TemperatureSensor
+    ambientSensor: AmbientLightSensor
+
+    neckYawServo: NeckYawDevice
+
+    thingSpeak: ThingSpeak
+    thingSpeakProcess: athena.Process
+
+    networkCommander: athena.NetworkCommander
 
     constructor() {
         super()
-        this.wheelDevices = new WheelDevices()
+        this.wheelsController = new WheelsController()
+        this.temperatueSensor = new TemperatureSensor()
+        this.ambientSensor = new AmbientLightSensor()
+        this.neckYawServo = new NeckYawDevice()
+
+        this.thingSpeak = new ThingSpeak()
+        this.thingSpeakProcess = new athena.Process(this.thingSpeak)
+
+        this.networkCommander = new athena.NetworkCommander(this)
+    }
+
+    handleSingleNetworkCommand(controller_id: string, command: any, value: number) {
+        serial.writeLine(controller_id + ' - ' + command + ' - ' + value)
     }
 
     loop() {
+        let temperature = this.temperatueSensor.getData()
+        let ambient_light = this.ambientSensor.getData()
+
+        this.thingSpeak.update(0, temperature)
+        this.thingSpeak.update(1, ambient_light)
 
         return 100;
     }
 
     stop() { }
+
+    acceptData(key: string, value: string) {
+
+    }
 }
 
 //----------- Board Config -----------------------------
-const ATHENA_RADIO_GROUP:number = 13
-const MICROBIT_A_NAME:string = 'vupet'
-const MICROBIT_B_NAME:string = 'tugov'
+const MICROBIT_A_NAME: string = 'vupet'
+const MICROBIT_B_NAME: string = 'tugov'
 
 
-//----------- Pins Config -----------------------------
+//----------- Pins Config Board A -----------------------------
 const PIN_SONAR_TRIGGER: DigitalPin = DigitalPin.P15
 const PIN_SONAR_ECHO: DigitalPin = DigitalPin.P16
 
@@ -315,8 +387,13 @@ const PIN_LEDEAR_R: AnalogPin = AnalogPin.P12
 const PIN_LEDEAR_G: AnalogPin = AnalogPin.P13
 const PIN_LEDEAR_B: AnalogPin = AnalogPin.P14
 
-const PIN_MOTION_FRONT_LEFT: DigitalPin = DigitalPin.P6
-const PIN_MOTION_FRONT_RIGHT: DigitalPin = DigitalPin.P7
+const PIN_MOTION_FRONT_LEFT: DigitalPin = DigitalPin.P0
+const PIN_MOTION_FRONT_RIGHT: DigitalPin = DigitalPin.P1
+
+
+//----------- Pins Config Board B -----------------------------
+const PIN_TEMPERATURE: AnalogPin = AnalogPin.P1
+const PIN_AMBIENT: AnalogPin = AnalogPin.P0
 
 
 //----------- Credentials -----------------------------
@@ -329,16 +406,23 @@ const THINGSPEAK_DEFAULT_CHANNEL = ''
 serial.redirectToUSB()
 
 
-let brain, brainProcess
+let brain: athena.BrainInterface | athena.SubProgram, brainProcess
 //----------- Spacific Init -----------------------------
 if (control.deviceName() == MICROBIT_A_NAME) {
+    basic.showString("A")
+    basic.pause(1000)
+    basic.clearScreen()
 
-    brain = new MasterBrain()
-    brainProcess = new athena.Process(brain)
+    brain = new BrainA()
+    brainProcess = new athena.Process(<athena.SubProgram>brain)
 } else if (control.deviceName() == MICROBIT_B_NAME) {
+    basic.showString("B")
+    basic.pause(1000)
+    basic.clearScreen()
 
-    brain = new MasterBrain()
-    brainProcess = new athena.Process(brain)
+    brain = new BrainB()
+    brainProcess = new athena.Process(<athena.SubProgram>brain)
+
 } else {
     basic.showString('Configure Microbit Name')
 }
