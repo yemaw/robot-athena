@@ -4,11 +4,10 @@
         "core": "*",
         "radio": "*",
         "pxt-sonar": "github:microsoft/pxt-sonar#v0.0.5",
-        "cbit_IR": "github:zhuning239/cbit_ir#f9530e7960fbf246d6a5a209c7a7cfac1f6ea765",
         "motor": "github:dfrobot/pxt-motor#dbd0aa1f999cc925785006df8ee6581307ec3140",
-        "dfplayer": "github:lioujj/pxt-mp3#b4ee0edcbb09c3fa0d03950482ee8ffddf0f82b9",
         "neopixel": "github:microsoft/pxt-neopixel#v0.6.12",
-        "pxt-esp8266_thingspeak": "github:alankrantas/pxt-esp8266_thingspeak#v0.0.3"
+        "pxt-esp8266_thingspeak": "github:alankrantas/pxt-esp8266_thingspeak#v0.0.3",
+        "pxt-DHT11_DHT22": "github:alankrantas/pxt-dht11_dht22#v0.0.1"
     },
     "description": "",
     "files": [
