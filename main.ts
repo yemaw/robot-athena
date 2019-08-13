@@ -1,3 +1,133 @@
+class Group1SensorsReadingController extends athena.SingleDeviceController implements athena.DataProvideDeviceInterface, athena.SubProgram {
+
+    data: any
+    process: athena.Process
+
+    constructor() {
+        super()
+        this.data = {
+            'temperature': null,
+            'humidity': null,
+            'light': null
+        }
+        this.process = new athena.Process(this)
+    }
+
+    getData(key: string) {
+        return this.data[key]
+    }
+
+    loop() {
+        //DHT11 Reading
+        dht11_dht22.queryData(
+            DHTtype.DHT11,
+            PIN_DHT11_SENSOR,
+            true,
+            false,
+            true
+        )
+        this.data['temperature'] = Math.round(dht11_dht22.readData(dataType.temperature))
+        this.data['humidity'] = Math.round(dht11_dht22.readData(dataType.humidity))
+
+        //LDR Reading
+        this.data['light'] = pins.analogReadPin(PIN_LIGHT_SENSOR)
+
+        return 3 * 1000
+    }
+    stop() { }
+}
+
+
+class ThingSpeak implements athena.SubProgram {
+
+    env_data: any
+    process: athena.Process
+
+    constructor() {
+        this.env_data = {
+            0: null,
+            1: null,
+            2: null,
+            3: null,
+            4: null,
+            5: null,
+            6: null,
+            7: null
+        }
+
+        this.sending_in_progress = false
+
+        this.process = new athena.Process(this)
+    }
+
+    update_env_data(field_index: number, value: number) {
+        this.env_data[field_index] = value
+    }
+
+    sending_in_progress: boolean
+
+    sendData(channel: string, fields: any) {
+        if (this.sending_in_progress == true) {
+            return
+        }
+
+        this.sending_in_progress = true
+        basic.showIcon(IconNames.SmallHeart)
+        if (!ESP8266ThingSpeak.isWifiConnected()) {
+            ESP8266ThingSpeak.connectWifi(
+                SerialPin.P12,
+                SerialPin.P13,
+                BaudRate.BaudRate115200,
+                "Lei",
+                "hello123"
+            )
+        }
+        basic.showIcon(IconNames.Heart)
+        basic.pause(1000)
+
+
+        ESP8266ThingSpeak.connectThingSpeak(
+            "api.thingspeak.com",
+            "XKF9XUCMFVW1DSGZ",
+            20,
+            20,
+            20,
+            0,
+            0,
+            0,
+            0,
+            0
+        )
+        if (ESP8266ThingSpeak.isLastUploadSuccessful()) {
+            basic.showIcon(IconNames.Yes)
+        } else {
+            basic.showIcon(IconNames.No)
+        }
+        basic.pause(3000)
+        this.sending_in_progress = false
+    }
+
+    loop() {
+
+        this.sendData(THINGSPEAK_ENV_CHANNEL, this.env_data)
+        return 1000 * 15;
+    }
+
+    stop() { }
+}
+
+
+
+
+// class AmbientLightSensor extends athena.SingleDeviceController implements athena.DataProvideDeviceInterface {
+//     getData(key?: string) {
+//         let v = pins.analogReadPin(PIN_LIGHT_SENSOR)
+//         return v
+//     }
+// }
+
+
+
 class SonarSensor extends athena.SingleDeviceController implements athena.DataProvideDeviceInterface {
     getData(key?: string) {
         return sonar.ping(PIN_SONAR_TRIGGER, PIN_SONAR_ECHO, PingUnit.Centimeters)
@@ -71,21 +201,11 @@ class MotionSensors extends athena.CompoundDeviceController implements athena.Ev
 
 
 
-class TemperatureSensor extends athena.SingleDeviceController implements athena.DataProvideDeviceInterface {
-    getData(key?: string) {
-        let v = pins.analogReadPin(PIN_TEMPERATURE)
-        return Math.round(v * (3 / 10.24))
-    }
-}
 
 
 
-class AmbientLightSensor extends athena.SingleDeviceController implements athena.DataProvideDeviceInterface {
-    getData(key?: string) {
-        let v = pins.analogReadPin(PIN_AMBIENT)
-        return v
-    }
-}
+
+
 
 //---
 
@@ -93,12 +213,15 @@ class NeckYawDevice extends athena.SingleDeviceController {
 
     front() {
         motor.servo(motor.Servos.S8, 25)
+        motor.servo(motor.Servos.S6, 25)
     }
     front_right() {
         motor.servo(motor.Servos.S8, 0)
+        motor.servo(motor.Servos.S6, 0)
     }
     front_left() {
         motor.servo(motor.Servos.S8, 50)
+        motor.servo(motor.Servos.S6, 50)
     }
 }
 
@@ -189,61 +312,7 @@ class IRReceiver extends athena.SingleDeviceController {
 
 
 
-class ThingSpeak implements athena.SubProgram {
 
-    data: any
-
-    constructor() {
-        this.data = {
-            0: null,
-            1: null,
-            2: null,
-            3: null,
-            4: null,
-            5: null,
-            6: null,
-            7: null
-        }
-        this.wifiConnect()
-    }
-
-    wifiConnect() {
-        if (!ESP8266ThingSpeak.isWifiConnected()) {
-            ESP8266ThingSpeak.connectWifi(SerialPin.P2, SerialPin.P8, BaudRate.BaudRate115200, WIFI_SSID, WIFI_PASSWORD)
-        }
-    }
-
-    update(field_index: number, value: number) {
-        this.data[field_index] = value
-    }
-
-    sendData() {
-        ESP8266ThingSpeak.connectThingSpeak(
-            "api.thingspeak.com",
-            THINGSPEAK_DEFAULT_CHANNEL,
-            this.data[0],
-            this.data[1],
-            this.data[2],
-            this.data[3],
-            this.data[4],
-            this.data[5],
-            this.data[6],
-            this.data[7]
-        )
-        if (!ESP8266ThingSpeak.isLastUploadSuccessful()) {
-            //basic.showIcon(IconNames.No)
-        } else {
-            //basic.showIcon(IconNames.Yes)
-        }
-    }
-
-    loop() {
-        this.sendData()
-        return 1000 * 30;
-    }
-
-    stop() { }
-}
 
 
 
@@ -329,28 +398,25 @@ class BrainA extends athena.BrainClass implements athena.BrainInterface, athena.
 
 class BrainB extends athena.BrainClass implements athena.BrainInterface, athena.SubProgram {
 
+    g1src: Group1SensorsReadingController
+
     wheelsController: WheelsController
-    temperatueSensor: TemperatureSensor
-    ambientSensor: AmbientLightSensor
-
     neckYawServo: NeckYawDevice
-
     thingSpeak: ThingSpeak
-    thingSpeakProcess: athena.Process
-
     networkCommander: athena.NetworkCommander
+    process: athena.Process
 
     constructor() {
         super()
-        this.wheelsController = new WheelsController()
-        this.temperatueSensor = new TemperatureSensor()
-        this.ambientSensor = new AmbientLightSensor()
-        this.neckYawServo = new NeckYawDevice()
+
+        this.g1src = new Group1SensorsReadingController()
+        // this.wheelsController = new WheelsController()
+        // this.neckYawServo = new NeckYawDevice()
 
         this.thingSpeak = new ThingSpeak()
-        this.thingSpeakProcess = new athena.Process(this.thingSpeak)
 
-        this.networkCommander = new athena.NetworkCommander(this)
+        // this.networkCommander = new athena.NetworkCommander(this)
+        this.process = new athena.Process(this)
     }
 
     handleSingleNetworkCommand(controller_id: string, command: any, value: number) {
@@ -358,11 +424,16 @@ class BrainB extends athena.BrainClass implements athena.BrainInterface, athena.
     }
 
     loop() {
-        let temperature = this.temperatueSensor.getData()
-        let ambient_light = this.ambientSensor.getData()
 
-        this.thingSpeak.update(0, temperature)
-        this.thingSpeak.update(1, ambient_light)
+        // let temperature = this.g1src.getData('temperature')
+        // let humidity = this.g1src.getData('humidity')
+        // let light = this.g1src.getData('light')
+
+        // serial.writeLine("l:" + light + ' h:' + humidity + ' t:' + temperature)
+
+        // this.thingSpeak.update(0, temperature)
+        // this.thingSpeak.update(1, humidity)
+        // this.thingSpeak.update(2, light)
 
         return 100;
     }
@@ -392,19 +463,21 @@ const PIN_MOTION_FRONT_RIGHT: DigitalPin = DigitalPin.P1
 
 
 //----------- Pins Config Board B -----------------------------
-const PIN_TEMPERATURE: AnalogPin = AnalogPin.P1
-const PIN_AMBIENT: AnalogPin = AnalogPin.P0
+const PIN_DHT11_SENSOR: DigitalPin = DigitalPin.P0
+const PIN_LIGHT_SENSOR: AnalogPin = AnalogPin.P1
+
+const PIN_WIFI_RX: SerialPin = SerialPin.P12
+const PIN_WIFI_TX: SerialPin = SerialPin.P13
 
 
 //----------- Credentials -----------------------------
-const WIFI_SSID = ''
-const WIFI_PASSWORD = ''
-const THINGSPEAK_DEFAULT_CHANNEL = ''
+const WIFI_SSID = 'Lei'
+const WIFI_PASSWORD = 'hello123'
+const THINGSPEAK_ENV_CHANNEL = 'XKF9XUCMFVW1DSGZ'
 
 
 //----------- Common Init -----------------------------
 serial.redirectToUSB()
-
 
 let brain: athena.BrainInterface | athena.SubProgram, brainProcess
 //----------- Spacific Init -----------------------------
@@ -421,7 +494,6 @@ if (control.deviceName() == MICROBIT_A_NAME) {
     basic.clearScreen()
 
     brain = new BrainB()
-    brainProcess = new athena.Process(<athena.SubProgram>brain)
 
 } else {
     basic.showString('Configure Microbit Name')
@@ -430,24 +502,4 @@ if (control.deviceName() == MICROBIT_A_NAME) {
 
 
 
-// let sonarDevice = new SonarDevice(SONAR_TRIGGER_PIN, SONAR_ECHO_PIN)
-// let ledEars = new LEDEarsDevice()
-// let motionSensor = new MotionController()
-
-// let wheelDriver = new WheelDrivers()
-
-// let neoleds = new NeoLed3x3()
-// let mp3decoder = new MP3Decoder()
-// let temperatureSensor = new TemperatureSensor()
-// let ambientLightSensor = new AmbientLightSensor()
-
-// let neckYawServo = new NeckYawServo()
-
-
-// let thingSpeak = new ThingSpeak()
-// let thingSpeakProcess = new athena.Process(thingSpeak)
-
-
-// let brain = new PetBrain();
-// let brainProcess = new athena.Process(brain)
 
