@@ -1,14 +1,17 @@
-class SensorsReadingGroup1Controller extends athena.DeviceController implements athena.DataProvideDeviceInterface, athena.SubProgram {
+class SensorsReadingGroupB1Controller extends athena.DeviceController implements athena.DataProvideDeviceInterface, athena.SubProgram {
 
     data: any
     process: athena.Process
+    busy: boolean
 
     constructor() {
         super()
         this.data = {
             'temperature': null,
-            'humidity': null
+            'humidity': null,
+            'light': null,
         }
+        this.busy = false
         this.process = new athena.Process(this)
     }
 
@@ -17,7 +20,15 @@ class SensorsReadingGroup1Controller extends athena.DeviceController implements 
     }
 
     loop() {
-        //DHT11 Reading
+        let t = 5 * 1000
+
+        if (this.busy) {
+            return t
+        } else {
+            this.busy = true
+        }
+        basic.showIcon(IconNames.SmallHeart)
+        //DHT11 Querying (This block)
         dht11_dht22.queryData(
             DHTtype.DHT11,
             PIN_DHT11_SENSOR,
@@ -25,26 +36,36 @@ class SensorsReadingGroup1Controller extends athena.DeviceController implements 
             false,
             true
         )
+        basic.showIcon(IconNames.Heart)
+        basic.pause(100)
+        //Teamperature Reading
         this.data['temperature'] = Math.round(dht11_dht22.readData(dataType.temperature))
+        basic.pause(100)
+        //Humidity Reading
         this.data['humidity'] = Math.round(dht11_dht22.readData(dataType.humidity))
+        basic.pause(100)
+        //LDR Reading
+        this.data['light'] = Math.round(pins.analogReadPin(PIN_LIGHT_SENSOR))
+        basic.pause(100)
 
-        return 5 * 1000
+        this.busy = false
+        return t
     }
     stop() { }
 }
 
-
-class SensorsReadingGroup2Controller extends athena.DeviceController implements athena.DataProvideDeviceInterface, athena.SubProgram {
+class SensorsReadingGroupB2Controller extends athena.DeviceController implements athena.DataProvideDeviceInterface, athena.SubProgram {
 
     data: any
     process: athena.Process
+    busy: boolean
 
     constructor() {
         super()
         this.data = {
-            'light': null,
-            'flame': null
+            'distance': null
         }
+        this.busy = false
         this.process = new athena.Process(this)
     }
 
@@ -53,13 +74,20 @@ class SensorsReadingGroup2Controller extends athena.DeviceController implements 
     }
 
     loop() {
-        //LDR Reading
-        this.data['light'] = pins.analogReadPin(PIN_LIGHT_SENSOR)
+        let t = 200
 
-        //Flame Reading
-        this.data['flame'] = pins.analogReadPin(PIN_FLAME_SENSOR)
-
-        return 300
+        if (this.busy) {
+            return t
+        } else {
+            this.busy = true
+        }
+        basic.showIcon(IconNames.SmallSquare)
+        basic.pause(100)
+        //Sonar Reading
+        this.data['distance'] = sonar.ping(PIN_SONAR_TRIGGER, PIN_SONAR_ECHO, PingUnit.Centimeters)
+        basic.showIcon(IconNames.Square)
+        this.busy = false
+        return t
     }
     stop() { }
 }
@@ -69,6 +97,7 @@ class SensorsReadingGroup2Controller extends athena.DeviceController implements 
 class ThingSpeak implements athena.SubProgram {
 
     env_data: any
+    busy: boolean
     process: athena.Process
 
     constructor() {
@@ -83,8 +112,7 @@ class ThingSpeak implements athena.SubProgram {
             7: null
         }
 
-        this.sending_in_progress = false
-        this.disable_data_sending = false
+        this.busy = false
 
         this.process = new athena.Process(this)
     }
@@ -93,19 +121,9 @@ class ThingSpeak implements athena.SubProgram {
         this.env_data[field_index] = value
     }
 
-    sending_in_progress: boolean
-    disable_data_sending: boolean
-
     sendData(channel: string, fields: any) {
-        if (this.sending_in_progress == true) {
-            return
-        }
-        if (this.disable_data_sending == true) {
-            return
-        }
 
-        this.sending_in_progress = true
-        basic.showIcon(IconNames.SmallHeart)
+        basic.showIcon(IconNames.SmallSquare)
         if (!ESP8266ThingSpeak.isWifiConnected()) {
             ESP8266ThingSpeak.connectWifi(
                 PIN_ESP8266_RX,
@@ -119,7 +137,7 @@ class ThingSpeak implements athena.SubProgram {
         if (!ESP8266ThingSpeak.isWifiConnected()) {
             basic.showIcon(IconNames.Ghost)
         } else {
-            basic.showIcon(IconNames.Heart)
+            basic.showIcon(IconNames.Square)
         }
 
         ESP8266ThingSpeak.connectThingSpeak(
@@ -140,17 +158,73 @@ class ThingSpeak implements athena.SubProgram {
         } else {
             basic.showIcon(IconNames.No)
         }
-
-        this.sending_in_progress = false
     }
 
     loop() {
+        let t = 1000 * 10
+
+        if (this.busy == true) {
+            return t
+        } else {
+            this.busy = true
+        }
+
         this.sendData(THINGSPEAK_ENV_CHANNEL, this.env_data)
-        return 1000 * 15;
+
+        this.busy = false
+        return t;
     }
 
     stop() { }
 }
+
+
+
+
+
+
+
+
+class SensorsReadingGroup2Controller extends athena.DeviceController implements athena.DataProvideDeviceInterface, athena.SubProgram {
+
+    data: any
+    process: athena.Process
+    busy: boolean
+
+    constructor() {
+        super()
+        this.data = {
+            'flame': null
+        }
+        this.busy = false
+        this.process = new athena.Process(this)
+    }
+
+    getData(key: string) {
+        return this.data[key]
+    }
+
+    loop() {
+        let t = 100
+
+        if (this.busy) {
+            return t
+        } else {
+            this.busy = true
+        }
+
+        //Flame Reading
+        this.data['flame'] = pins.analogReadPin(PIN_FLAME_SENSOR)
+
+        this.busy = false
+        return t
+    }
+    stop() { }
+}
+
+
+
+
 
 
 
@@ -185,40 +259,15 @@ class NeckController {
 }
 
 
-class SonarSensor extends athena.SingleDeviceController implements athena.DataProvideDeviceInterface {
-    getData(key?: string) {
-        return sonar.ping(PIN_SONAR_TRIGGER, PIN_SONAR_ECHO, PingUnit.Centimeters)
-    }
-}
+// class SonarSensor extends athena.SingleDeviceController implements athena.DataProvideDeviceInterface {
+//     getData(key?: string) {
+//         return sonar.ping(PIN_SONAR_TRIGGER, PIN_SONAR_ECHO, PingUnit.Centimeters)
+//     }
+// }
 
 
 
-class LEDEarsDevice extends athena.SingleDeviceController {
-    constructor() {
-        super()
-        this.off()
-    }
-    show_color(r: number, g: number, b: number) {
-        pins.analogWritePin(PIN_LEDEAR_R, Math.constrain(r, 0, 255))
-        pins.analogWritePin(PIN_LEDEAR_G, Math.constrain(g, 0, 255))
-        pins.analogWritePin(PIN_LEDEAR_B, Math.constrain(b, 0, 255))
-    }
-    off() {
-        this.show_color(0, 0, 0)
-    }
-    random() {
-        this.show_color(Math.randomRange(0, 255), Math.randomRange(0, 255), Math.randomRange(0, 255))
-    }
-    red() {
-        this.show_color(255, 0, 0)
-    }
-    green() {
-        this.show_color(0, 255, 0)
-    }
-    blue() {
-        this.show_color(0, 0, 255)
-    }
-}
+
 
 
 enum YawSegment {
@@ -261,28 +310,6 @@ class MotionSensors extends athena.CompoundDeviceController implements athena.Ev
 
 
 
-
-
-
-//---
-
-class NeckYawDevice extends athena.SingleDeviceController {
-
-    front() {
-        motor.servo(motor.Servos.S8, 25)
-        motor.servo(motor.Servos.S6, 25)
-    }
-    front_right() {
-        motor.servo(motor.Servos.S8, 0)
-        motor.servo(motor.Servos.S6, 0)
-    }
-    front_left() {
-        motor.servo(motor.Servos.S8, 50)
-        motor.servo(motor.Servos.S6, 50)
-    }
-}
-
-
 enum WheelsControllerCommands {
     front,
     front_left,
@@ -311,6 +338,30 @@ class WheelsController extends athena.CompoundDeviceController implements athena
         motor.motorStopAll()
     }
 }
+
+
+
+
+
+//---
+
+class NeckYawDevice extends athena.SingleDeviceController {
+
+    front() {
+        motor.servo(motor.Servos.S8, 25)
+        motor.servo(motor.Servos.S6, 25)
+    }
+    front_right() {
+        motor.servo(motor.Servos.S8, 0)
+        motor.servo(motor.Servos.S6, 0)
+    }
+    front_left() {
+        motor.servo(motor.Servos.S8, 50)
+        motor.servo(motor.Servos.S6, 50)
+    }
+}
+
+
 
 
 //-------
@@ -362,19 +413,26 @@ class IRReceiver extends athena.SingleDeviceController {
 
 class BrainA extends athena.BrainClass implements athena.BrainInterface, athena.SubProgram {
 
-    sonarSensor: SonarSensor
-    ledEarDevice: LEDEarsDevice
-    motionSensors: MotionSensors
+    thingSpeak: ThingSpeak
 
-    networkCommander: athena.NetworkCommander
+    // sonarSensor: SonarSensor
+    // ledEarDevice: LEDEarsDevice
+    // motionSensors: MotionSensors
+
+    // networkCommander: athena.NetworkCommander
+    process: athena.Process
 
     constructor() {
         super()
-        this.sonarSensor = new SonarSensor()
-        this.ledEarDevice = new LEDEarsDevice()
-        this.motionSensors = new MotionSensors()
 
-        this.networkCommander = new athena.NetworkCommander(this)
+        this.thingSpeak = new ThingSpeak()
+
+        // this.sonarSensor = new SonarSensor()
+        // this.ledEarDevice = new LEDEarsDevice()
+        // this.motionSensors = new MotionSensors()
+
+        // this.networkCommander = new athena.NetworkCommander(this)
+        this.process = new athena.Process(this)
     }
 
     handleSingleNetworkCommand(controller_id: string, command: any, value: number) {
@@ -383,16 +441,24 @@ class BrainA extends athena.BrainClass implements athena.BrainInterface, athena.
 
     loop() {
 
-        let distance = this.sonarSensor.getData()
 
-        if (distance > 10) {
-            this.ledEarDevice.random()
-            this.networkCommander.transmitSingleNetworkCommand(
-                WheelsController.controller_id,
-                WheelsControllerCommands.front, 0)
-        } else {
-            this.ledEarDevice.red()
+        if (this.thingSpeak) {
+            this.thingSpeak.update_env_data(0, 23)
+            this.thingSpeak.update_env_data(1, 45)
+            this.thingSpeak.update_env_data(2, 500)
         }
+
+
+        // let distance = this.sonarSensor.getData()
+
+        // if (distance > 10) {
+        //     this.ledEarDevice.random()
+        //     this.networkCommander.transmitSingleNetworkCommand(
+        //         WheelsController.controller_id,
+        //         WheelsControllerCommands.front, 0)
+        // } else {
+        //     this.ledEarDevice.red()
+        // }
 
         //let motion: YawSegment = this.motionSensors.getData()
         //radio.sendValue("neck_yaw_servo", motion)
@@ -440,15 +506,12 @@ class BrainA extends athena.BrainClass implements athena.BrainInterface, athena.
 
 class BrainB extends athena.BrainClass implements athena.BrainInterface, athena.SubProgram {
 
-    thingSpeak: ThingSpeak
+    srgb1c: SensorsReadingGroupB1Controller
+    srgb2c: SensorsReadingGroupB2Controller
 
-    srg1c: SensorsReadingGroup1Controller
-    srg2c: SensorsReadingGroup2Controller
     //dfppc: DFPPlayerController
-
     nc: NeckController
-
-    wheelsController: WheelsController
+    wc: WheelsController
     neckYawServo: NeckYawDevice
 
     networkCommander: athena.NetworkCommander
@@ -457,39 +520,22 @@ class BrainB extends athena.BrainClass implements athena.BrainInterface, athena.
     constructor() {
         super()
 
-        this.srg1c = new SensorsReadingGroup1Controller()
-        this.srg2c = new SensorsReadingGroup2Controller()
-        //this.dfppc = new DFPPlayerController()
-        this.nc = new NeckController()
+        this.srgb1c = new SensorsReadingGroupB1Controller()
+        this.srgb2c = new SensorsReadingGroupB2Controller()
 
 
-        // this.wheelsController = new WheelsController()
-        // this.neckYawServo = new NeckYawDevice()
+        // //this.dfppc = new DFPPlayerController()
+        // this.nc = new NeckController()
+        // this.wc = new WheelsController()
+        // // this.neckYawServo = new NeckYawDevice()
 
-        // this.networkCommander = new athena.NetworkCommander(this)
+        // // this.networkCommander = new athena.NetworkCommander(this)
 
-        this.thingSpeak = new ThingSpeak()
 
-        this.nc.front()
+
+        // this.nc.front()
 
         this.process = new athena.Process(this)
-    }
-
-    dance() {
-        let t = 100
-        this.nc.front_top()
-        basic.pause(1500)
-        this.nc.front_botom()
-
-        basic.pause(800)
-        this.nc.front_top()
-        basic.pause(1500)
-        this.nc.front_botom()
-
-        basic.pause(800)
-        this.nc.front()
-
-
     }
 
     handleSingleNetworkCommand(controller_id: string, command: any, value: number) {
@@ -498,23 +544,22 @@ class BrainB extends athena.BrainClass implements athena.BrainInterface, athena.
 
     loop() {
 
-        let temperature = this.srg1c.getData('temperature')
-        let humidity = this.srg1c.getData('humidity')
-        let light = this.srg2c.getData('light')
-        let flame = this.srg2c.getData('flame')
+        let temperature = this.srgb1c.getData('temperature')
+        let humidity = this.srgb1c.getData('humidity')
+        let light = this.srgb1c.getData('light')
 
-        this.thingSpeak.update_env_data(0, temperature)
-        this.thingSpeak.update_env_data(1, humidity)
-        this.thingSpeak.update_env_data(2, light)
-        this.thingSpeak.update_env_data(3, flame)
+        let distance = this.srgb2c.getData('distance')
 
-        this.thingSpeak.disable_data_sending = true
+        basic.showNumber(distance)
 
-        if (flame < 900) {
-            this.nc.front_top()
-        } else {
-            this.nc.front()
-        }
+
+        // if (flame < 800) {
+        //     this.nc.front_top()
+        //     this.wc.backward()
+        // } else {
+        //     this.nc.front()
+        //     this.wc.stopAll()
+        // }
 
         return 100;
     }
@@ -526,33 +571,70 @@ class BrainB extends athena.BrainClass implements athena.BrainInterface, athena.
     }
 }
 
+//----------- Classes -----------------------------
+
+class LEDEarsDevice {
+    constructor() {
+        this.off()
+    }
+    show_color(r: number, g: number, b: number) {
+        pins.analogWritePin(PIN_LEDEAR_R, Math.constrain(r, 0, 255))
+        pins.analogWritePin(PIN_LEDEAR_G, Math.constrain(g, 0, 255))
+        pins.analogWritePin(PIN_LEDEAR_B, Math.constrain(b, 0, 255))
+    }
+    off() {
+        this.show_color(0, 0, 0)
+    }
+    random() {
+        this.show_color(Math.randomRange(0, 255), Math.randomRange(0, 255), Math.randomRange(0, 255))
+    }
+    red() {
+        this.show_color(255, 0, 0)
+    }
+    green() {
+        this.show_color(0, 255, 0)
+    }
+    blue() {
+        this.show_color(0, 0, 255)
+    }
+}
+
+
+
+
 //----------- Board Config -----------------------------
 const MICROBIT_A_NAME: string = 'vupet'
 const MICROBIT_B_NAME: string = 'tugov'
 
 
 //----------- Pins Config Board A -----------------------------
-const PIN_SONAR_TRIGGER: DigitalPin = DigitalPin.P15
-const PIN_SONAR_ECHO: DigitalPin = DigitalPin.P16
+const PIN_ESP8266_RX: SerialPin = SerialPin.P8
+const PIN_ESP8266_TX: SerialPin = SerialPin.P12
 
-const PIN_LEDEAR_R: AnalogPin = AnalogPin.P12
-const PIN_LEDEAR_G: AnalogPin = AnalogPin.P13
-const PIN_LEDEAR_B: AnalogPin = AnalogPin.P14
+
 
 const PIN_MOTION_FRONT_LEFT: DigitalPin = DigitalPin.P0
 const PIN_MOTION_FRONT_RIGHT: DigitalPin = DigitalPin.P1
 
-
-//----------- Pins Config Board B -----------------------------
-const PIN_DHT11_SENSOR: DigitalPin = DigitalPin.P0
-const PIN_LIGHT_SENSOR: AnalogPin = AnalogPin.P1
 const PIN_FLAME_SENSOR: AnalogPin = AnalogPin.P2
 
-const PIN_ESP8266_RX: SerialPin = SerialPin.P12
-const PIN_ESP8266_TX: SerialPin = SerialPin.P13
+//----------- Pins Config Board B -----------------------------
+const PIN_LEDEAR_R: AnalogPin = AnalogPin.P0
+const PIN_LEDEAR_G: AnalogPin = AnalogPin.P1
+const PIN_LEDEAR_B: AnalogPin = AnalogPin.P2
+
+const PIN_LIGHT_SENSOR: AnalogPin = AnalogPin.P3
+
+const PIN_DHT11_SENSOR: DigitalPin = DigitalPin.P8
+
+const PIN_SONAR_TRIGGER: DigitalPin = DigitalPin.P15
+const PIN_SONAR_ECHO: DigitalPin = DigitalPin.P16
+
+
+
 
 const PIN_DFPPlayer_RX: SerialPin = SerialPin.P2
-const PIN_DFPPlayer_TX: SerialPin = SerialPin.P8
+const PIN_DFPPlayer_TX: SerialPin = SerialPin.P2
 
 
 //----------- Credentials -----------------------------
@@ -572,29 +654,110 @@ if (control.deviceName() == MICROBIT_A_NAME) {
     basic.clearScreen()
 
     brain = new BrainA()
-    brainProcess = new athena.Process(<athena.SubProgram>brain)
 } else if (control.deviceName() == MICROBIT_B_NAME) {
-    // basic.showString("B")
-    // basic.pause(1000)
-    // basic.clearScreen()
+    basic.showString("B")
+    basic.pause(1000)
+    basic.clearScreen()
 
-    brain = new BrainB()
+
+    //brain = new BrainB()
+    let data: any = {
+        'distance': null,
+        'temperature': null,
+        'humidity': null,
+        'light': null
+    }
+
+    let every_t_5000 = 0
+    let every_t_2000 = 0
+    let every_t_1000 = 0
+    let every_t_500 = 0
+    let every_t_100 = 0
+
+    function every_5000() {
+
+        //DHT11 Query (blocking)
+        dht11_dht22.queryData(
+            DHTtype.DHT11,
+            PIN_DHT11_SENSOR,
+            true,
+            false,
+            true
+        )
+
+        //Teamperature Reading
+        data['temperature'] = Math.round(dht11_dht22.readData(dataType.temperature))
+
+        //Humidity Reading
+        data['humidity'] = Math.round(dht11_dht22.readData(dataType.humidity))
+    }
+
+    function every_2000() {
+
+    }
+
+    function every_1000() {
+        //Light Reading
+        data['light'] = Math.round(pins.analogReadPin(PIN_LIGHT_SENSOR))
+
+    }
+
+    function every_500() {
+
+    }
+
+    function every_100() {
+        //Sonar Reading
+        data['distance'] = sonar.ping(PIN_SONAR_TRIGGER, PIN_SONAR_ECHO, PingUnit.Centimeters)
+
+        if (data['distance'] <= 10) {
+            ledEars.red()
+        } else if (data['light'] > 800) {
+            ledEars.show_color(255, 255, 255)
+        } else {
+            ledEars.random()
+        }
+    }
+
+    let ledEars: LEDEarsDevice = new LEDEarsDevice()
+
+
+    basic.forever(function () {
+        let rt = input.runningTime()
+
+        if (rt - every_t_5000 > 5000 || every_t_5000 == 0) {
+            every_5000()
+            every_t_5000 = input.runningTime()
+        }
+
+        if (rt - every_t_2000 > 2000 || every_t_2000 == 0) {
+            every_2000()
+            every_t_2000 = input.runningTime()
+        }
+
+        if (rt - every_t_1000 > 1000 || every_t_1000 == 0) {
+            every_1000()
+            every_t_1000 = input.runningTime()
+        }
+
+        if (rt - every_t_500 > 500 || every_t_500 == 0) {
+            every_500()
+            every_t_500 = input.runningTime()
+        }
+
+        if (rt - every_t_100 > 100 || every_t_100 == 0) {
+            every_100()
+            every_t_100 = input.runningTime()
+        }
+
+        //basic.showNumber(data['distance'])
+    })
+
+
 
 } else {
     basic.showString('Configure Microbit Name')
 }
-
-
-
-input.onButtonPressed(Button.A, function () {
-    (brain as BrainB).dance()
-})
-input.onButtonPressed(Button.B, function () {
-
-})
-input.onButtonPressed(Button.AB, function () {
-
-})
 
 
 
