@@ -114,7 +114,7 @@ class ThingSpeak implements athena.SubProgram {
 
         this.busy = false
 
-        this.process = new athena.Process(this)
+        //this.process = new athena.Process(this)
     }
 
     update_env_data(field_index: number, value: number) {
@@ -600,7 +600,23 @@ class LEDEarsDevice {
 }
 
 
+class DataTransfer {
+    count: number
+    constructor(handler: (name: string, value: number) => void) {
+        this.count = 0
+        radio.setGroup(13)
 
+        radio.onReceivedValue(function (name: string, value: number) {
+            this.count += 1
+            //handler(name, value)
+        })
+    }
+
+    broadcast(key: string, value: number) {
+        radio.sendValue(key, value)
+    }
+
+}
 
 //----------- Board Config -----------------------------
 const MICROBIT_A_NAME: string = 'vupet'
@@ -624,6 +640,8 @@ const PIN_LEDEAR_G: AnalogPin = AnalogPin.P1
 const PIN_LEDEAR_B: AnalogPin = AnalogPin.P2
 
 const PIN_LIGHT_SENSOR: AnalogPin = AnalogPin.P3
+
+const PIN_IR_MINI_RECEIVER: Pins = Pins.P7
 
 const PIN_DHT11_SENSOR: DigitalPin = DigitalPin.P8
 
@@ -653,7 +671,39 @@ if (control.deviceName() == MICROBIT_A_NAME) {
     basic.pause(1000)
     basic.clearScreen()
 
-    brain = new BrainA()
+
+    let dt: DataTransfer = new DataTransfer((name: string, value: number) => {
+
+        let data = name.split('.')
+        if (data[0]) {
+            let group: string = data[0]
+            let key: string = data[1]
+
+            ts.update_env_data(0, value)
+        }
+    })
+
+    input.onButtonPressed(Button.A, function () {
+        basic.showNumber(dt.count)
+    })
+
+    let every_t_15000 = 0
+    function every_15000() {
+        ts.loop()
+    }
+
+    let ts: ThingSpeak = new ThingSpeak()
+
+    basic.forever(function () {
+        let rt = input.runningTime()
+
+        if (rt - every_t_15000 > 5000 || every_t_15000 == 0) {
+            every_15000()
+            every_t_15000 = input.runningTime()
+        }
+    })
+
+    //brain = new BrainA()
 } else if (control.deviceName() == MICROBIT_B_NAME) {
     basic.showString("B")
     basic.pause(1000)
@@ -687,9 +737,11 @@ if (control.deviceName() == MICROBIT_A_NAME) {
 
         //Teamperature Reading
         data['temperature'] = Math.round(dht11_dht22.readData(dataType.temperature))
+        //dt.broadcast("data.temperature", data['temperature'])
 
         //Humidity Reading
         data['humidity'] = Math.round(dht11_dht22.readData(dataType.humidity))
+        //dt.broadcast("data.humidity", data['temperature'])
     }
 
     function every_2000() {
@@ -699,7 +751,7 @@ if (control.deviceName() == MICROBIT_A_NAME) {
     function every_1000() {
         //Light Reading
         data['light'] = Math.round(pins.analogReadPin(PIN_LIGHT_SENSOR))
-
+        //dt.broadcast("data.light", data['light'])
     }
 
     function every_500() {
@@ -709,6 +761,7 @@ if (control.deviceName() == MICROBIT_A_NAME) {
     function every_100() {
         //Sonar Reading
         data['distance'] = sonar.ping(PIN_SONAR_TRIGGER, PIN_SONAR_ECHO, PingUnit.Centimeters)
+        //dt.broadcast("data.distance", data['distance'])
 
         if (data['distance'] <= 10) {
             ledEars.red()
@@ -720,6 +773,9 @@ if (control.deviceName() == MICROBIT_A_NAME) {
     }
 
     let ledEars: LEDEarsDevice = new LEDEarsDevice()
+    let dt: DataTransfer = new DataTransfer((name: string, value: number) => {
+
+    })
 
 
     basic.forever(function () {
@@ -753,6 +809,11 @@ if (control.deviceName() == MICROBIT_A_NAME) {
         //basic.showNumber(data['distance'])
     })
 
+    //IR
+    cbit_IR.init(PIN_IR_MINI_RECEIVER)
+    cbit_IR.onPressEvent(RemoteButton.NUM0, function () {
+        basic.showIcon(IconNames.Heart)
+    })
 
 
 } else {
