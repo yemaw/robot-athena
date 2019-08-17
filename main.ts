@@ -18,17 +18,9 @@ const PIN_SONAR_TRIGGER: DigitalPin = DigitalPin.P15
 const PIN_SONAR_ECHO: DigitalPin = DigitalPin.P16
 
 
-// const PIN_DFPPlayer_RX: SerialPin = SerialPin.P2
-// const PIN_DFPPlayer_TX: SerialPin = SerialPin.P2
-
 //----------- Pins Config 3V Board -----------------------------
 const PIN_ESP8266_RX: SerialPin = SerialPin.P8
 const PIN_ESP8266_TX: SerialPin = SerialPin.P12
-
-// const PIN_MOTION_FRONT_LEFT: DigitalPin = DigitalPin.P0
-// const PIN_MOTION_FRONT_RIGHT: DigitalPin = DigitalPin.P1
-
-// const PIN_FLAME_SENSOR: AnalogPin = AnalogPin.P2
 
 
 //----------- Credentials -----------------------------
@@ -36,8 +28,8 @@ const WIFI_SSID = ''
 const WIFI_PASSWORD = ''
 const THINGSPEAK_ENV_CHANNEL = ''
 
-//----------- Classes -----------------------------
 
+//----------- Classes -----------------------------
 class LEDEarsDevice {
     constructor() {
         this.off()
@@ -65,200 +57,334 @@ class LEDEarsDevice {
 }
 
 
-class DataTransfer {
-    count: number
-    constructor(handler: (name: string, value: number) => void) {
-        this.count = 0
-        radio.setGroup(13)
+class ThingSpeak {
 
-        radio.onReceivedValue(function (name: string, value: number) {
-            this.count += 1
-            //handler(name, value)
+    busy: boolean
+
+    constructor() {
+        this.busy = false
+    }
+
+    sendData(channel: string, fields: number[]) {
+
+        this.busy = true
+
+        basic.showIcon(IconNames.SmallSquare)
+        if (!ESP8266ThingSpeak.isWifiConnected()) {
+            ESP8266ThingSpeak.connectWifi(
+                PIN_ESP8266_RX,
+                PIN_ESP8266_TX,
+                BaudRate.BaudRate115200,
+                WIFI_SSID,
+                WIFI_PASSWORD
+            )
+        }
+
+        if (!ESP8266ThingSpeak.isWifiConnected()) {
+            basic.showIcon(IconNames.Ghost)
+        } else {
+            basic.showIcon(IconNames.Square)
+        }
+
+        ESP8266ThingSpeak.connectThingSpeak(
+            "api.thingspeak.com",
+            THINGSPEAK_ENV_CHANNEL,
+            fields[0],
+            fields[1],
+            fields[2],
+            fields[3],
+            fields[4],
+            fields[5],
+            fields[6],
+            fields[7],
+        )
+
+        if (ESP8266ThingSpeak.isLastUploadSuccessful()) {
+            basic.showIcon(IconNames.Yes)
+        } else {
+            basic.showIcon(IconNames.No)
+        }
+
+        this.busy = false
+    }
+
+}
+
+
+
+//----------- Global Variables and Communication Keys -----------------------------
+// let DATA_DISTANCE_FRONT: number = null
+// let DATA_TEMPERATURE: number = null
+// let DATA_HUMIDITY: number = null
+// let DATA_LIGHT: number = null
+// let DATA_FLAME: number = null
+// let DATA_MOTION_LEFT: number = null
+// let DATA_MOTION_RIGHT: number = null
+
+const DISTANCE_FRONT = 'df'
+const TEMPERATURE = 't'
+const HUMIDITY = 'h'
+const LIGHT = 'l'
+const FLAME = 'f'
+
+let Data: any = {
+    DISTANCE_FRONT: false,
+    TEMPERATURE: false,
+    HUMIDITY: false,
+    LIGHT: false,
+    FLAME: false
+}
+
+
+//----------- Main Classes -----------------------------
+class EveryCallbackType {
+    every: number
+    callback: () => void
+    last_run: number
+    constructor(every: number, callback: () => void) {
+        this.every = every
+        this.callback = callback
+        this.last_run = null
+    }
+}
+
+abstract class Controller {
+
+    on_every_hooks: EveryCallbackType[]
+
+    constructor() {
+        this.on_every_hooks = []
+
+        let thisObj = this
+
+        basic.forever(function () {
+            let rt = input.runningTime()
+
+            thisObj.on_every_hooks.forEach(function (item: EveryCallbackType, index: number) {
+                let rt = input.runningTime()
+
+                if (rt - item.last_run > item.every || item.last_run == null) {
+                    item.callback()
+                    item.last_run = input.runningTime()
+                }
+            })
+        })
+
+        radio.setGroup(13)
+        radio.onReceivedValue(function (key: string, value: number) {
+            thisObj.receiveNetworkData(key, value)
         })
     }
 
-    broadcast(key: string, value: number) {
+    addOnEveryHook(every: number, callback: () => void) {
+        this.on_every_hooks.push(new EveryCallbackType(every, callback))
+    }
+
+    sendNetworkData(key: string, value: number) {
         radio.sendValue(key, value)
     }
 
+    receiveNetworkData(key: string, value: number) {
+        Data[key] = value
+    }
+}
+
+class MB5VController extends Controller {
+    count: number
+    constructor() {
+        super()
+
+        let thisObj = this
+
+        let ledEars = new LEDEarsDevice()
+
+
+        //60s
+        this.addOnEveryHook(60000, function () {
+
+        })
+
+
+        //30s
+        this.addOnEveryHook(30000, function () {
+
+        })
+
+
+        //15s
+        this.addOnEveryHook(15000, function () {
+
+        })
+
+
+        //5s
+        this.addOnEveryHook(5000, function () {
+            //DHT11 Query
+            dht11_dht22.queryData(
+                DHTtype.DHT11,
+                PIN_DHT11_SENSOR,
+                true,
+                false,
+                true
+            )
+
+            //Teamperature Reading
+            Data[TEMPERATURE] = Math.round(dht11_dht22.readData(dataType.temperature))
+
+            //Humidity Reading
+            Data[HUMIDITY] = Math.round(dht11_dht22.readData(dataType.humidity))
+
+            //Light Reading
+            Data[LIGHT] = Math.round(pins.analogReadPin(PIN_LIGHT_SENSOR))
+
+            thisObj.sendNetworkData(TEMPERATURE, Data[TEMPERATURE])
+            thisObj.sendNetworkData(HUMIDITY, Data[HUMIDITY])
+            thisObj.sendNetworkData(LIGHT, Data[LIGHT])
+        })
+
+
+        //3s
+        this.addOnEveryHook(3000, function () {
+
+        })
+
+        //1s
+        this.addOnEveryHook(1000, function () {
+            thisObj.sendNetworkData(DISTANCE_FRONT, Data[DISTANCE_FRONT])
+        })
+
+
+        //100ms
+        this.addOnEveryHook(100, function () {
+            //Distance Reading
+            Data[DISTANCE_FRONT] = sonar.ping(PIN_SONAR_TRIGGER, PIN_SONAR_ECHO, PingUnit.Centimeters)
+
+            if (Data[DISTANCE_FRONT] <= 15) {
+                thisObj.sendNetworkData(DISTANCE_FRONT, Data[DISTANCE_FRONT])
+            }
+
+
+            if (Data[DISTANCE_FRONT] === null) {
+                ledEars.off()
+            } else if (Data[DISTANCE_FRONT] === 0) {
+                ledEars.red()
+            } else if (Data[DISTANCE_FRONT] <= 10) {
+                ledEars.blue()
+            } else {
+                ledEars.random()
+            }
+
+
+        })
+
+
+        //10ms
+        this.addOnEveryHook(10, function () {
+
+        })
+
+
+    }
+
+
+}
+
+class MB3VController extends Controller {
+    constructor() {
+        super()
+
+        let thisObj = this
+
+        let thinkSpeak = new ThingSpeak()
+
+        //60s
+        this.addOnEveryHook(60000, function () {
+
+        })
+
+
+        //30s
+        this.addOnEveryHook(30000, function () {
+
+        })
+
+
+        //15s
+        this.addOnEveryHook(15000, function () {
+            if (!thinkSpeak.busy) {
+                thinkSpeak.sendData(THINGSPEAK_ENV_CHANNEL, [
+                    Data[TEMPERATURE],
+                    Data[HUMIDITY],
+                    Data[LIGHT],
+                    Data[FLAME],
+                    null,
+                    null,
+                    null,
+                    null
+                ])
+            }
+        })
+
+
+        //5s
+        this.addOnEveryHook(5000, function () {
+
+        })
+
+
+        //3s
+        this.addOnEveryHook(3000, function () {
+
+        })
+
+
+        //1s
+        this.addOnEveryHook(1000, function () {
+
+        })
+
+
+        //500ms
+        this.addOnEveryHook(500, function () {
+
+        })
+
+
+        //100ms
+        this.addOnEveryHook(100, function () {
+
+        })
+
+
+        //10ms
+        this.addOnEveryHook(10, function () {
+
+        })
+    }
+
 }
 
 
 
-// interface Controller{
-//     constructor(){
-//         basic.forever(){
-//             let rt = input.runningTime()
-//         }
-//     }
-// }
 
-// class MB5VController implements Controller{
-
-// }
-
-// class MB3VController implements Controller{
-    
-// }
-
-
-//----------- Common Init -----------------------------
-serial.redirectToUSB()
-
-
-let data: any = {
-    'distance': null,
-    'temperature': null,
-    'humidity': null,
-    'light': null
-}
 
 //----------- Spacific Init -----------------------------
-if (control.deviceName() == MICROBIT_5V_NAME) {
-    basic.showString("5")
-    basic.pause(1000)
+if (MICROBIT_5V_NAME == control.deviceName()) {
+    basic.showNumber(5, 500)
     basic.clearScreen()
 
+    new MB5VController()
 
-    let every_t_5000 = 0
-    let every_t_2000 = 0
-    let every_t_1000 = 0
-    let every_t_500 = 0
-    let every_t_100 = 0
-
-    function every_5000() {
-
-        //DHT11 Query (blocking)
-        dht11_dht22.queryData(
-            DHTtype.DHT11,
-            PIN_DHT11_SENSOR,
-            true,
-            false,
-            true
-        )
-
-        //Teamperature Reading
-        data['temperature'] = Math.round(dht11_dht22.readData(dataType.temperature))
-        //dt.broadcast("data.temperature", data['temperature'])
-
-        //Humidity Reading
-        data['humidity'] = Math.round(dht11_dht22.readData(dataType.humidity))
-        //dt.broadcast("data.humidity", data['temperature'])
-    }
-
-    function every_2000() {
-
-    }
-
-    function every_1000() {
-        //Light Reading
-        data['light'] = Math.round(pins.analogReadPin(PIN_LIGHT_SENSOR))
-        //dt.broadcast("data.light", data['light'])
-    }
-
-    function every_500() {
-
-    }
-
-    function every_100() {
-        //Sonar Reading
-        data['distance'] = sonar.ping(PIN_SONAR_TRIGGER, PIN_SONAR_ECHO, PingUnit.Centimeters)
-        //dt.broadcast("data.distance", data['distance'])
-
-        if (data['distance'] <= 10) {
-            ledEars.red()
-        } else if (data['light'] > 800) {
-            ledEars.show_color(255, 255, 255)
-        } else {
-            ledEars.random()
-        }
-    }
-
-    let ledEars: LEDEarsDevice = new LEDEarsDevice()
-    let dt: DataTransfer = new DataTransfer((name: string, value: number) => {
-
-    })
-
-
-    basic.forever(function () {
-        let rt = input.runningTime()
-
-        if (rt - every_t_5000 > 5000 || every_t_5000 == 0) {
-            every_5000()
-            every_t_5000 = input.runningTime()
-        }
-
-        if (rt - every_t_2000 > 2000 || every_t_2000 == 0) {
-            every_2000()
-            every_t_2000 = input.runningTime()
-        }
-
-        if (rt - every_t_1000 > 1000 || every_t_1000 == 0) {
-            every_1000()
-            every_t_1000 = input.runningTime()
-        }
-
-        if (rt - every_t_500 > 500 || every_t_500 == 0) {
-            every_500()
-            every_t_500 = input.runningTime()
-        }
-
-        if (rt - every_t_100 > 100 || every_t_100 == 0) {
-            every_100()
-            every_t_100 = input.runningTime()
-        }
-
-        //basic.showNumber(data['distance'])
-    })
-
-    //IR
-    cbit_IR.init(PIN_IR_MINI_RECEIVER)
-    cbit_IR.onPressEvent(RemoteButton.NUM0, function () {
-        basic.showIcon(IconNames.Heart)
-    })
-
-
-} else if (control.deviceName() == MICROBIT_3V_NAME) {
-    basic.showString("3")
-    basic.pause(1000)
+} else if (MICROBIT_3V_NAME == control.deviceName()) {
+    basic.showNumber(3, 500)
     basic.clearScreen()
 
+    new MB3VController()
 
-    let dt: DataTransfer = new DataTransfer((name: string, value: number) => {
-
-        let data = name.split('.')
-        if (data[0]) {
-            let group: string = data[0]
-            let key: string = data[1]
-
-            ts.update_env_data(0, value)
-        }
-    })
-
-    input.onButtonPressed(Button.A, function () {
-        basic.showNumber(dt.count)
-    })
-
-    let every_t_15000 = 0
-    function every_15000() {
-        ts.loop()
-    }
-
-    let ts: ThingSpeak = new ThingSpeak()
-
-    basic.forever(function () {
-        let rt = input.runningTime()
-
-        if (rt - every_t_15000 > 5000 || every_t_15000 == 0) {
-            every_15000()
-            every_t_15000 = input.runningTime()
-        }
-    })
-
-    //brain = new BrainA()
 } else {
     basic.showString('Configure Microbit Name')
 }
+
 
 
 
