@@ -10,17 +10,20 @@ const PIN_LEDEAR_B: AnalogPin = AnalogPin.P2
 
 const PIN_LIGHT_SENSOR: AnalogPin = AnalogPin.P3
 
-const PIN_IR_MINI_RECEIVER: Pins = Pins.P7
-
 const PIN_DHT11_SENSOR: DigitalPin = DigitalPin.P8
 
-const PIN_SONAR_TRIGGER: DigitalPin = DigitalPin.P15
-const PIN_SONAR_ECHO: DigitalPin = DigitalPin.P16
+const PIN_MQ135_SENSOR: AnalogPin = AnalogPin.P10
 
+const PIN_HCSR04_TRIGGER: DigitalPin = DigitalPin.P15
+const PIN_HCSR04_ECHO: DigitalPin = DigitalPin.P16
+
+//const PIN_IR_MINI_RECEIVER: Pins = Pins.P7
 
 //----------- Pins Config 3V Board -----------------------------
 const PIN_ESP8266_RX: SerialPin = SerialPin.P8
 const PIN_ESP8266_TX: SerialPin = SerialPin.P12
+
+const PIN_FLAME_SENSOR: AnalogPin = AnalogPin.P2
 
 
 //----------- Credentials -----------------------------
@@ -29,7 +32,7 @@ const WIFI_PASSWORD = ''
 const THINGSPEAK_ENV_CHANNEL = ''
 
 
-//----------- Classes -----------------------------
+//----------- Device Wrapper Classes -----------------------------
 class LEDEarsDevice {
     constructor() {
         this.off()
@@ -54,22 +57,28 @@ class LEDEarsDevice {
     blue() {
         this.show_color(0, 0, 255)
     }
+    check() {
+        if (Data[DISTANCE_FRONT] === null) {
+            this.off()
+        } else if (Data[DISTANCE_FRONT] === 0) {
+            this.red()
+        } else if (Data[DISTANCE_FRONT] <= 10) {
+            this.blue()
+        } else {
+            if (Data[LIGHT] > 600) {
+                this.show_color(255, 255, 255)
+            } else {
+                this.green()
+            }
+        }
+    }
 }
-
 
 class ThingSpeak {
 
-    busy: boolean
-
-    constructor() {
-        this.busy = false
-    }
-
     sendData(channel: string, fields: number[]) {
 
-        this.busy = true
-
-        // basic.showIcon(IconNames.SmallSquare)
+        basic.showIcon(IconNames.SmallSquare)
         if (!ESP8266ThingSpeak.isWifiConnected()) {
             ESP8266ThingSpeak.connectWifi(
                 PIN_ESP8266_RX,
@@ -97,16 +106,13 @@ class ThingSpeak {
             )
 
             if (ESP8266ThingSpeak.isLastUploadSuccessful()) {
-                //basic.showIcon(IconNames.Yes)
-                basic.clearScreen()
+                basic.showIcon(IconNames.Yes)
+                //basic.clearScreen()
             } else {
                 basic.showIcon(IconNames.Ghost)
             }
         }
-
-        this.busy = false
     }
-
 }
 
 class Wheels {
@@ -143,29 +149,51 @@ class Wheels {
     }
 }
 
-//----------- Global Variables and Communication Keys -----------------------------
-// let DATA_DISTANCE_FRONT: number = null
-// let DATA_TEMPERATURE: number = null
-// let DATA_HUMIDITY: number = null
-// let DATA_LIGHT: number = null
-// let DATA_FLAME: number = null
-// let DATA_MOTION_LEFT: number = null
-// let DATA_MOTION_RIGHT: number = null
+class NeckServosController {
+    front() {
+        motor.servo(motor.Servos.S1, 0)
+    }
+    front_top() {
+        motor.servo(motor.Servos.S1, 20)
+    }
+    front_botom() {
+        motor.servo(motor.Servos.S1, -20)
+    }
+    bottom() {
+        motor.servo(motor.Servos.S1, -40)
+    }
+}
 
+//----------- Global Data Variables and Communication Keys -----------------------------
+
+//Communication Keys
 const DISTANCE_FRONT = 'df'
 const TEMPERATURE = 't'
 const HUMIDITY = 'h'
 const LIGHT = 'l'
 const FLAME = 'f'
+const GAS = 'g'
 
+//Sensors Data Holder
 let Data: any = {
     DISTANCE_FRONT: false,
     TEMPERATURE: false,
     HUMIDITY: false,
     LIGHT: false,
-    FLAME: false
+    FLAME: false,
+    GAS: false
 }
 
+enum WHEELS_MODE {
+    NONE,
+    FREE_ROAM,
+    MOTION_FOLLOW
+}
+
+enum THINGSPEAK_MODE {
+    OFF,
+    ON
+}
 
 //----------- Main Classes -----------------------------
 class EveryCallbackType {
@@ -220,8 +248,9 @@ abstract class Controller {
     }
 }
 
+
 class MB5VController extends Controller {
-    count: number
+
     constructor() {
         super()
 
@@ -229,121 +258,78 @@ class MB5VController extends Controller {
 
         let ledEars = new LEDEarsDevice()
 
-
-        //60s
-        this.addOnEveryHook(60000, function () {
-
-        })
-
-
-        //30s
-        this.addOnEveryHook(30000, function () {
-
-        })
-
-
-        //15s
-        this.addOnEveryHook(15000, function () {
-
-        })
-
-
-        //5s
+        //Some Sensors Reading
         this.addOnEveryHook(5000, function () {
-            //DHT11 Query
-            dht11_dht22.queryData(
-                DHTtype.DHT11,
-                PIN_DHT11_SENSOR,
-                true,
-                false,
-                true
-            )
-
-            //Teamperature Reading
-            Data[TEMPERATURE] = Math.round(dht11_dht22.readData(dataType.temperature))
-
-            //Humidity Reading
-            Data[HUMIDITY] = Math.round(dht11_dht22.readData(dataType.humidity))
-
-            //Light Reading
-            Data[LIGHT] = Math.round(pins.analogReadPin(PIN_LIGHT_SENSOR))
-
-            thisObj.sendNetworkData(TEMPERATURE, Data[TEMPERATURE])
-            thisObj.sendNetworkData(HUMIDITY, Data[HUMIDITY])
-            thisObj.sendNetworkData(LIGHT, Data[LIGHT])
+            thisObj.readSensors()
         })
 
-
-        //3s
-        this.addOnEveryHook(3000, function () {
-
-        })
-
-        //1s
-        this.addOnEveryHook(1000, function () {
-            thisObj.sendNetworkData(DISTANCE_FRONT, Data[DISTANCE_FRONT])
-        })
-
-
-        //100ms
+        //Distance Reading
         this.addOnEveryHook(100, function () {
             //Distance Reading
-            Data[DISTANCE_FRONT] = sonar.ping(PIN_SONAR_TRIGGER, PIN_SONAR_ECHO, PingUnit.Centimeters)
+            Data[DISTANCE_FRONT] = sonar.ping(PIN_HCSR04_TRIGGER, PIN_HCSR04_ECHO, PingUnit.Centimeters)
 
-            if (Data[DISTANCE_FRONT] <= 50) {
+            if (Data[DISTANCE_FRONT] <= 80) {
                 thisObj.sendNetworkData(DISTANCE_FRONT, Data[DISTANCE_FRONT])
             }
 
-            if (Data[DISTANCE_FRONT] === null) {
-                ledEars.off()
-            } else if (Data[DISTANCE_FRONT] === 0) {
-                ledEars.red()
-            } else if (Data[DISTANCE_FRONT] <= 10) {
-                ledEars.blue()
-            } else {
-                ledEars.green()
-            }
-
-
+            ledEars.check()
         })
-
-
-        //10ms
-        this.addOnEveryHook(10, function () {
-
+        this.addOnEveryHook(1000, function () {
+            thisObj.sendNetworkData(DISTANCE_FRONT, Data[DISTANCE_FRONT])
         })
-
-
     }
 
+    readSensors() {
+        //DHT11 Query
+        dht11_dht22.queryData(DHTtype.DHT11, PIN_DHT11_SENSOR, true, false, true)
 
+        //Teamperature Reading
+        Data[TEMPERATURE] = Math.round(dht11_dht22.readData(dataType.temperature))
+
+        //Humidity Reading
+        Data[HUMIDITY] = Math.round(dht11_dht22.readData(dataType.humidity))
+
+        //Light Reading
+        Data[LIGHT] = Math.round(pins.analogReadPin(PIN_LIGHT_SENSOR))
+
+        //Gas Reading
+        Data[GAS] = Math.round(pins.analogReadPin(PIN_MQ135_SENSOR))
+
+        this.sendNetworkData(TEMPERATURE, Data[TEMPERATURE])
+        this.sendNetworkData(HUMIDITY, Data[HUMIDITY])
+        this.sendNetworkData(LIGHT, Data[LIGHT])
+        this.sendNetworkData(GAS, Data[GAS])
+    }
 }
 
 class MB3VController extends Controller {
 
-    send_to_thingspeak: boolean
+    wheels_mode: WHEELS_MODE
+    thingspeak_mode: THINGSPEAK_MODE
 
     constructor() {
         super()
 
         let thisObj = this
 
-        this.send_to_thingspeak = false
+        this.wheels_mode = WHEELS_MODE.NONE
+        this.thingspeak_mode = THINGSPEAK_MODE.OFF
 
-        let thinkSpeak = new ThingSpeak()
+        let thingSpeak = new ThingSpeak()
         let wheels = new Wheels()
+        let neck = new NeckServosController()
 
         motor.motorStopAll()
 
         // ThingSpeak
         this.addOnEveryHook(15000, function () {
-            if (!thinkSpeak.busy && thisObj.send_to_thingspeak) {
-                thinkSpeak.sendData(THINGSPEAK_ENV_CHANNEL, [
+            if (thisObj.thingspeak_mode == THINGSPEAK_MODE.ON) {
+                thingSpeak.sendData(THINGSPEAK_ENV_CHANNEL, [
                     Data[TEMPERATURE],
                     Data[HUMIDITY],
                     Data[LIGHT],
+                    Data[GAS],
                     Data[FLAME],
-                    null,
                     null,
                     null,
                     null
@@ -352,44 +338,42 @@ class MB3VController extends Controller {
         })
 
 
-        //5s
-        this.addOnEveryHook(5000, function () {
-
+        //Flame Sensor Reading
+        this.addOnEveryHook(100, function () {
+            Data[FLAME] = pins.analogReadPin(PIN_FLAME_SENSOR)
+            if (Data[FLAME] < 900) {
+                thisObj.sendNetworkData(FLAME, Data[FLAME])
+            }
+        })
+        this.addOnEveryHook(2000, function () {
+            thisObj.sendNetworkData(FLAME, Data[FLAME])
         })
 
 
-        //3s
-        this.addOnEveryHook(3000, function () {
-
-        })
-
-
-        //1s
         this.addOnEveryHook(1000, function () {
-            // let degrees = input.compassHeading();
-            // basic.showNumber(degrees)
+            thisObj.sendNetworkData(GAS, Data[GAS])
         })
-
-
-        //500ms
-        this.addOnEveryHook(500, function () {
-
-        })
-
 
         //Wheels Control
         const w_interval = 10
         let distance_error = 0
         let wheels_pause_for = 0
-
         let turning = false
         this.addOnEveryHook(w_interval, function () {
-
-            let df = Data[DISTANCE_FRONT]
-
-            if (Data[FLAME] < 800) {
-                wheels.backward(200)
+            if (thisObj.wheels_mode == WHEELS_MODE.NONE) {
+                wheels.stop()
             } else {
+
+                if (Data[FLAME] < 900) {
+                    wheels.backward(255)
+                    neck.front_top()
+                    return
+                }
+
+                let df = Data[DISTANCE_FRONT]
+
+                neck.front()
+
                 if (df == 0) {
                     wheels.stop()
                 } else if (df > 80) {
@@ -420,17 +404,24 @@ class MB3VController extends Controller {
         })
 
 
-        //10ms
-        this.addOnEveryHook(10, function () {
+        input.onButtonPressed(Button.A, function () {
+            if (thisObj.wheels_mode == WHEELS_MODE.NONE) {
+                thisObj.wheels_mode = WHEELS_MODE.FREE_ROAM
+            } else {
+                thisObj.wheels_mode = WHEELS_MODE.NONE
+            }
+        })
 
+        input.onButtonPressed(Button.B, function () {
+            if (thisObj.thingspeak_mode == THINGSPEAK_MODE.OFF) {
+                thisObj.thingspeak_mode = THINGSPEAK_MODE.ON
+            } else {
+                thisObj.thingspeak_mode = THINGSPEAK_MODE.OFF
+            }
         })
     }
 
 }
-
-
-
-
 
 //----------- Spacific Init -----------------------------
 if (MICROBIT_5V_NAME == control.deviceName()) {
@@ -448,7 +439,3 @@ if (MICROBIT_5V_NAME == control.deviceName()) {
 } else {
     basic.showString('Configure Microbit Name')
 }
-
-
-
-
