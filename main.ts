@@ -10,16 +10,20 @@ const PIN_LEDEAR_B: AnalogPin = AnalogPin.P2
 
 const PIN_LIGHT_SENSOR: AnalogPin = AnalogPin.P3
 
+// const PIN_IR_MINI_RECEIVER: Pins = Pins.P7
+
 const PIN_DHT11_SENSOR: DigitalPin = DigitalPin.P8
 
 const PIN_MQ135_SENSOR: AnalogPin = AnalogPin.P10
 
+const PIN_MP3DECODER_RX: SerialPin = SerialPin.P13
+const PIN_MP3DECODER_TX: SerialPin = SerialPin.P14
+
 const PIN_HCSR04_TRIGGER: DigitalPin = DigitalPin.P15
 const PIN_HCSR04_ECHO: DigitalPin = DigitalPin.P16
 
-//const PIN_IR_MINI_RECEIVER: Pins = Pins.P7
-
 //----------- Pins Config 3V Board -----------------------------
+const PIN_LED3X3: DigitalPin = DigitalPin.P0
 const PIN_TILT: DigitalPin = DigitalPin.P1
 
 const PIN_FLAME_SENSOR: AnalogPin = AnalogPin.P2
@@ -187,6 +191,7 @@ const MOTION_FL = 'mfl'
 const MOTION_FR = 'mfr'
 const TILT_LAST_MSTIME = 'tilt_last_mstime'
 const TILT = 'tilt'
+const MP3DECODER = 'audio'
 
 //Sensors Data Holder
 let Data: any = {
@@ -199,7 +204,8 @@ let Data: any = {
     MOTION_FL: false,
     MOTION_FR: false,
     TILT_LAST_MSTIME: false,
-    TILT: false
+    TILT: false,
+    MP3DECODER: false
 }
 
 enum WHEELS_MODE {
@@ -209,6 +215,11 @@ enum WHEELS_MODE {
 }
 
 enum THINGSPEAK_MODE {
+    OFF,
+    ON
+}
+
+enum NEOPIXEL_MODE {
     OFF,
     ON
 }
@@ -248,6 +259,7 @@ abstract class Controller {
         })
 
         radio.setGroup(13)
+        radio.setTransmitPower(3)
         radio.onReceivedValue(function (key: string, value: number) {
             thisObj.receiveNetworkData(key, value)
         })
@@ -276,13 +288,16 @@ class MB5VController extends Controller {
 
         let ledEars = new LEDEarsDevice()
 
+        dfplayer.MP3_setSerial(PIN_MP3DECODER_RX, PIN_MP3DECODER_TX)
+        dfplayer.setVolume(30)
+
         //Some Sensors Reading
         this.addOnEveryHook(5000, function () {
             thisObj.readSensors()
         })
 
         //Distance Reading
-        this.addOnEveryHook(100, function () {
+        this.addOnEveryHook(200, function () {
             //Distance Reading
             Data[DISTANCE_FRONT] = sonar.ping(PIN_HCSR04_TRIGGER, PIN_HCSR04_ECHO, PingUnit.Centimeters)
 
@@ -295,6 +310,47 @@ class MB5VController extends Controller {
         this.addOnEveryHook(1000, function () {
             thisObj.sendNetworkData(DISTANCE_FRONT, Data[DISTANCE_FRONT])
         })
+
+        //MP3Decoder
+        this.addOnEveryHook(1000, function () {
+            if (!Data[MP3DECODER]) {
+                return
+            }
+            switch (Data[MP3DECODER]) {
+                case 2001:
+                    dfplayer.folderPlay(2, 1, dfplayer.yesOrNot.type1)
+                    break
+                case 3005:
+                    dfplayer.folderPlay(3, 5, dfplayer.yesOrNot.type1)
+                    break
+                case 3013:
+                    dfplayer.folderPlay(3, 13, dfplayer.yesOrNot.type1)
+                    break
+                // case 4003:
+                //     dfplayer.folderPlay(4, 3, dfplayer.yesOrNot.type1)
+                //     break
+            }
+            Data[MP3DECODER] = false
+        })
+
+        //IR Listener
+        // cbit_IR.onPressEvent(RemoteButton.NUM0, function () {
+        //     // thisObj.sendNetworkData(IR, 6)
+        // })
+        // cbit_IR.onPressEvent(RemoteButton.NUM1, function () {
+        //     // thisObj.sendNetworkData(IR, 7)
+        // })
+        // cbit_IR.onPressEvent(RemoteButton.NUM2, function () {
+        //     // thisObj.sendNetworkData(IR, 8)
+        // })
+        // cbit_IR.init(PIN_IR_MINI_RECEIVER)
+
+        input.onButtonPressed(Button.B, function () {
+            Data[MP3DECODER] = 2001
+        })
+
+
+
     }
 
     readSensors() {
@@ -324,6 +380,10 @@ class MB3VController extends Controller {
 
     wheels_mode: WHEELS_MODE
     thingspeak_mode: THINGSPEAK_MODE
+    neopixel_mode: NEOPIXEL_MODE
+
+    wheels: Wheels
+    neck: NeckServosController
 
     constructor() {
         super()
@@ -332,12 +392,15 @@ class MB3VController extends Controller {
 
         this.wheels_mode = WHEELS_MODE.NONE
         this.thingspeak_mode = THINGSPEAK_MODE.OFF
+        this.neopixel_mode = NEOPIXEL_MODE.OFF
 
         let thingSpeak = new ThingSpeak()
-        let wheels = new Wheels()
-        let neck = new NeckServosController()
+        this.wheels = new Wheels()
+        this.neck = new NeckServosController()
 
         motor.motorStopAll()
+
+        let strip = neopixel.create(PIN_LED3X3, 9, NeoPixelMode.RGBW)
 
         // ThingSpeak
         this.addOnEveryHook(15000, function () {
@@ -358,15 +421,8 @@ class MB3VController extends Controller {
 
         //Flame Sensor Reading
         let flame_reaction_threshold = 100
-        this.addOnEveryHook(100, function () {
+        this.addOnEveryHook(300, function () {
             Data[FLAME] = pins.analogReadPin(PIN_FLAME_SENSOR)
-            //basic.showNumber(Data[FLAME])
-            if (Data[FLAME] < flame_reaction_threshold) {
-                thisObj.sendNetworkData(FLAME, Data[FLAME])
-            }
-        })
-        this.addOnEveryHook(2000, function () {
-            thisObj.sendNetworkData(FLAME, Data[FLAME])
         })
 
 
@@ -389,7 +445,7 @@ class MB3VController extends Controller {
         let min_drive = 0
 
         //Motion Sensors Reading
-        this.addOnEveryHook(100, function () {
+        this.addOnEveryHook(1000, function () {
             if (Data[TILT] == 0) {//if the robot is shaking, this can't be a external motion
                 Data[MOTION_FL] = pins.digitalReadPin(PIN_MOTION_FL)
                 Data[MOTION_FR] = pins.digitalReadPin(PIN_MOTION_FR)
@@ -401,71 +457,88 @@ class MB3VController extends Controller {
                 Data[MOTION_FR] = 0
             }
         })
-        this.addOnEveryHook(2000, function () {
-            // thisObj.sendNetworkData(MOTION_FL, Data[MOTION_FL])
-            // thisObj.sendNetworkData(MOTION_FR, Data[MOTION_FR])
-        })
-
-
 
         //Wheels Control
         const wc_interval = 10
+        let last_wheel_mode: WHEELS_MODE = WHEELS_MODE.NONE
         this.addOnEveryHook(wc_interval, function () {
 
             //Fire Response
             if (Data[FLAME] < flame_reaction_threshold && thisObj.wheels_mode != WHEELS_MODE.NONE) {
-                wheels.backward(255)
-                neck.front_top()
+                thisObj.wheels.backward(255)
+                thisObj.neck.front_top()
                 return
             }
+
+            //Reset Neck and Wheels and NeoPixel
+            if (last_wheel_mode != WHEELS_MODE.NONE && thisObj.wheels_mode == WHEELS_MODE.NONE) {
+                thisObj.neck.front()
+                thisObj.wheels.stop()
+                thisObj.neopixel_mode = NEOPIXEL_MODE.OFF
+            }
+
+            last_wheel_mode = thisObj.wheels_mode
 
             let df = Data[DISTANCE_FRONT]
 
             if (thisObj.wheels_mode == WHEELS_MODE.FREE_ROAM) {
-                neck.front()
+
+                thisObj.neck.front()
+                thisObj.neopixel_mode = NEOPIXEL_MODE.ON
+
                 if (df == 0) {
-                    wheels.stop()
+                    thisObj.wheels.stop()
                 } else if (df > 80) {
-                    wheels.forward(255)
-                } else if (df > 50) {
-                    wheels.forward(200)
+                    thisObj.wheels.forward(255)
                 } else if (df > 20) {
-                    wheels.forward(150)
+                    thisObj.wheels.forward(200)
                 } else if (df < 10) {
-                    wheels.backward(200)
+                    thisObj.wheels.backward(200)
                 } else {
-                    Math.randomRange(1, 10) < 9 ? wheels.turnLeft(130) : wheels.stop()
+                    Math.randomRange(1, 10) < 9 ? thisObj.wheels.turnLeft(130) : thisObj.wheels.stop()
                 }
+
             } else if (thisObj.wheels_mode == WHEELS_MODE.MOTION_FOLLOW) {
 
-                if (df < 5 && df != 0) {
-                    wheels.stop()
-                    neck.front_top()
+                thisObj.neopixel_mode = NEOPIXEL_MODE.ON
+
+                if (df < 10 && df != 0) {
+                    thisObj.wheels.stop()
+                    thisObj.neck.front_top()
                 } else if (Data[MOTION_FL] == 1 && Data[MOTION_FR] == 1 && min_drive > 0) {
-                    wheels.forward(255)
+                    thisObj.wheels.forward(255)
                     basic.pause(min_drive)
                     min_drive = 0
                 } else if (Data[MOTION_FL] == 0 && Data[MOTION_FR] == 1 && min_drive > 0) {
-                    wheels.forwardX(255, 180)
+                    thisObj.wheels.forwardX(255, 180)
                     basic.pause(min_drive)
                     min_drive = 0
                 } else if (Data[MOTION_FL] == 1 && Data[MOTION_FR] == 0 && min_drive > 0) {
-                    wheels.forwardX(180, 255)
+                    thisObj.wheels.forwardX(180, 255)
                     basic.pause(min_drive)
                     min_drive = 0
                 } else {
-                    neck.front()
-                    wheels.stop()
+                    thisObj.neck.front()
+                    thisObj.wheels.stop()
                 }
+
             } else {
-                neck.front()
-                wheels.stop()
+
             }
 
         })
 
+        this.addOnEveryHook(10, function () {
+            if (thisObj.neopixel_mode == NEOPIXEL_MODE.OFF) {
+                strip.showColor(neopixel.colors(NeoPixelColors.Black))
+            } else {
+                strip.showRainbow(Math.randomRange(0, 366), Math.randomRange(0, 366))
+            }
+        })
+
 
         input.onButtonPressed(Button.A, function () {
+            basic.showIcon(IconNames.Target, 1000)
             if (thisObj.wheels_mode == WHEELS_MODE.NONE) {
                 thisObj.wheels_mode = WHEELS_MODE.FREE_ROAM
             } else if (thisObj.wheels_mode == WHEELS_MODE.FREE_ROAM) {
@@ -473,32 +546,64 @@ class MB3VController extends Controller {
             } else {
                 thisObj.wheels_mode = WHEELS_MODE.NONE
             }
+            basic.clearScreen()
         })
 
+
         input.onButtonPressed(Button.B, function () {
+            thisObj.sendNetworkData(MP3DECODER, 2001)
+            thisObj.neopixel_mode = (thisObj.neopixel_mode == NEOPIXEL_MODE.ON) ? NEOPIXEL_MODE.OFF : NEOPIXEL_MODE.ON
+            basic.pause(2000)
+            thisObj.shake_yes(4)
+        })
+
+        input.onButtonPressed(Button.AB, function () {
             if (thisObj.thingspeak_mode == THINGSPEAK_MODE.OFF) {
                 thisObj.thingspeak_mode = THINGSPEAK_MODE.ON
             } else {
                 thisObj.thingspeak_mode = THINGSPEAK_MODE.OFF
             }
         })
+
     }
 
+    shake_yes(count: number) {
+        this.neck.front()
+        basic.pause(250)
+        for (let index = 0; index < count; index++) {
+            this.neck.bottom()
+            basic.pause(500)
+            this.neck.front_top()
+            basic.pause(500)
+        }
+        this.neck.front()
+    }
+
+    shake_no(count: number) {
+        for (let index = 0; index < count; index++) {
+            this.wheels.turnLeft(255)
+            basic.pause(300)
+            this.wheels.turnRight(255)
+            basic.pause(500)
+            this.wheels.turnLeft(255)
+            basic.pause(300)
+            this.wheels.stop()
+        }
+    }
 }
 
 //----------- Spacific Init -----------------------------
+
 if (MICROBIT_5V_NAME == control.deviceName()) {
     // basic.showNumber(5, 500)
     // basic.clearScreen()
 
     // new MB5VController()
-
 } else if (MICROBIT_3V_NAME == control.deviceName()) {
     basic.showNumber(3, 500)
     basic.clearScreen()
 
     new MB3VController()
-
 } else {
     basic.showString('Configure Microbit Name')
 }
