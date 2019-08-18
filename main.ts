@@ -20,10 +20,15 @@ const PIN_HCSR04_ECHO: DigitalPin = DigitalPin.P16
 //const PIN_IR_MINI_RECEIVER: Pins = Pins.P7
 
 //----------- Pins Config 3V Board -----------------------------
+const PIN_TILT: DigitalPin = DigitalPin.P1
+
+const PIN_FLAME_SENSOR: AnalogPin = AnalogPin.P2
+
 const PIN_ESP8266_RX: SerialPin = SerialPin.P8
 const PIN_ESP8266_TX: SerialPin = SerialPin.P12
 
-const PIN_FLAME_SENSOR: AnalogPin = AnalogPin.P2
+const PIN_MOTION_FL: DigitalPin = DigitalPin.P13
+const PIN_MOTION_FR: DigitalPin = DigitalPin.P14
 
 
 //----------- Credentials -----------------------------
@@ -126,6 +131,11 @@ class Wheels {
         motor.MotorRun(motor.Motors.M1, motor.Dir.CW, Math.constrain(speed, 0, 255))
         motor.MotorRun(motor.Motors.M4, motor.Dir.CW, Math.constrain(speed, 0, 255))
     }
+    forwardX(speedLeft: number, speedRight: number) {
+        this.busy = true
+        motor.MotorRun(motor.Motors.M1, motor.Dir.CW, Math.constrain(speedLeft, 0, 255))
+        motor.MotorRun(motor.Motors.M4, motor.Dir.CW, Math.constrain(speedRight, 0, 255))
+    }
     turnLeft(speed: number) {
         this.busy = true
         // motor.motorStop(motor.Motors.M4)
@@ -173,6 +183,10 @@ const HUMIDITY = 'h'
 const LIGHT = 'l'
 const FLAME = 'f'
 const GAS = 'g'
+const MOTION_FL = 'mfl'
+const MOTION_FR = 'mfr'
+const TILT_LAST_MSTIME = 'tilt_last_mstime'
+const TILT = 'tilt'
 
 //Sensors Data Holder
 let Data: any = {
@@ -181,7 +195,11 @@ let Data: any = {
     HUMIDITY: false,
     LIGHT: false,
     FLAME: false,
-    GAS: false
+    GAS: false,
+    MOTION_FL: false,
+    MOTION_FR: false,
+    TILT_LAST_MSTIME: false,
+    TILT: false
 }
 
 enum WHEELS_MODE {
@@ -339,9 +357,11 @@ class MB3VController extends Controller {
 
 
         //Flame Sensor Reading
+        let flame_reaction_threshold = 100
         this.addOnEveryHook(100, function () {
             Data[FLAME] = pins.analogReadPin(PIN_FLAME_SENSOR)
-            if (Data[FLAME] < 900) {
+            //basic.showNumber(Data[FLAME])
+            if (Data[FLAME] < flame_reaction_threshold) {
                 thisObj.sendNetworkData(FLAME, Data[FLAME])
             }
         })
@@ -350,30 +370,59 @@ class MB3VController extends Controller {
         })
 
 
-        this.addOnEveryHook(1000, function () {
-            thisObj.sendNetworkData(GAS, Data[GAS])
+        //Tilt Sensor
+        const tilt_ms_threshold = 2500
+        this.addOnEveryHook(10, function () {
+            let t = input.runningTime()
+
+            if (pins.digitalReadPin(PIN_TILT) == 0) {
+                Data[TILT_LAST_MSTIME] = t
+            }
+
+            if (t - Data[TILT_LAST_MSTIME] < tilt_ms_threshold) {
+                Data[TILT] = 1
+            } else {
+                Data[TILT] = 0
+            }
         })
 
-        //Wheels Control
-        const w_interval = 10
-        let distance_error = 0
-        let wheels_pause_for = 0
-        let turning = false
-        this.addOnEveryHook(w_interval, function () {
-            if (thisObj.wheels_mode == WHEELS_MODE.NONE) {
-                wheels.stop()
-            } else {
+        let min_drive = 0
 
-                if (Data[FLAME] < 900) {
-                    wheels.backward(255)
-                    neck.front_top()
-                    return
+        //Motion Sensors Reading
+        this.addOnEveryHook(100, function () {
+            if (Data[TILT] == 0) {//if the robot is shaking, this can't be a external motion
+                Data[MOTION_FL] = pins.digitalReadPin(PIN_MOTION_FL)
+                Data[MOTION_FR] = pins.digitalReadPin(PIN_MOTION_FR)
+                if (Data[MOTION_FL] || Data[MOTION_FR]) {
+                    min_drive = 1000
                 }
+            } else {
+                Data[MOTION_FL] = 0
+                Data[MOTION_FR] = 0
+            }
+        })
+        this.addOnEveryHook(2000, function () {
+            // thisObj.sendNetworkData(MOTION_FL, Data[MOTION_FL])
+            // thisObj.sendNetworkData(MOTION_FR, Data[MOTION_FR])
+        })
 
-                let df = Data[DISTANCE_FRONT]
 
+
+        //Wheels Control
+        const wc_interval = 10
+        this.addOnEveryHook(wc_interval, function () {
+
+            //Fire Response
+            if (Data[FLAME] < flame_reaction_threshold && thisObj.wheels_mode != WHEELS_MODE.NONE) {
+                wheels.backward(255)
+                neck.front_top()
+                return
+            }
+
+            let df = Data[DISTANCE_FRONT]
+
+            if (thisObj.wheels_mode == WHEELS_MODE.FREE_ROAM) {
                 neck.front()
-
                 if (df == 0) {
                     wheels.stop()
                 } else if (df > 80) {
@@ -385,28 +434,42 @@ class MB3VController extends Controller {
                 } else if (df < 10) {
                     wheels.backward(200)
                 } else {
-                    //motor.motorStopAll()
-                    // if(!turning){
-                    //     turning = true
-                    //     let left_or_right = 1
-                    //     if(left_or_right == 1){
-                    //         wheels.turnLeft(150)
-                    //     }
-                    // }
-
                     Math.randomRange(1, 10) < 9 ? wheels.turnLeft(130) : wheels.stop()
                 }
+            } else if (thisObj.wheels_mode == WHEELS_MODE.MOTION_FOLLOW) {
+
+                if (df < 5 && df != 0) {
+                    wheels.stop()
+                    neck.front_top()
+                } else if (Data[MOTION_FL] == 1 && Data[MOTION_FR] == 1 && min_drive > 0) {
+                    wheels.forward(255)
+                    basic.pause(min_drive)
+                    min_drive = 0
+                } else if (Data[MOTION_FL] == 0 && Data[MOTION_FR] == 1 && min_drive > 0) {
+                    wheels.forwardX(255, 180)
+                    basic.pause(min_drive)
+                    min_drive = 0
+                } else if (Data[MOTION_FL] == 1 && Data[MOTION_FR] == 0 && min_drive > 0) {
+                    wheels.forwardX(180, 255)
+                    basic.pause(min_drive)
+                    min_drive = 0
+                } else {
+                    neck.front()
+                    wheels.stop()
+                }
+            } else {
+                neck.front()
+                wheels.stop()
             }
 
-            // distance_error = (df == 0) ? distance_error + w_interval : 0
-
-            // basic.showNumber(Math.round(distance_error / 100))
         })
 
 
         input.onButtonPressed(Button.A, function () {
             if (thisObj.wheels_mode == WHEELS_MODE.NONE) {
                 thisObj.wheels_mode = WHEELS_MODE.FREE_ROAM
+            } else if (thisObj.wheels_mode == WHEELS_MODE.FREE_ROAM) {
+                thisObj.wheels_mode = WHEELS_MODE.MOTION_FOLLOW
             } else {
                 thisObj.wheels_mode = WHEELS_MODE.NONE
             }
@@ -425,10 +488,10 @@ class MB3VController extends Controller {
 
 //----------- Spacific Init -----------------------------
 if (MICROBIT_5V_NAME == control.deviceName()) {
-    basic.showNumber(5, 500)
-    basic.clearScreen()
+    // basic.showNumber(5, 500)
+    // basic.clearScreen()
 
-    new MB5VController()
+    // new MB5VController()
 
 } else if (MICROBIT_3V_NAME == control.deviceName()) {
     basic.showNumber(3, 500)
