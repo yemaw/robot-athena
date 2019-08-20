@@ -1,5 +1,3 @@
-# athena
-
 # Robot Athena
 
 Source code of a little robot. It can :
