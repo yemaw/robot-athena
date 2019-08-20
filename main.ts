@@ -595,10 +595,10 @@ class MB3VController extends Controller {
 //----------- Spacific Init -----------------------------
 
 if (MICROBIT_5V_NAME == control.deviceName()) {
-    // basic.showNumber(5, 500)
-    // basic.clearScreen()
+    basic.showNumber(5, 500)
+    basic.clearScreen()
 
-    // new MB5VController()
+    new MB5VController()
 } else if (MICROBIT_3V_NAME == control.deviceName()) {
     basic.showNumber(3, 500)
     basic.clearScreen()
